@@ -18,10 +18,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         /*
-        * coroutines return a job class, i.e. launch() returns job, that we can save in a variable.
+        * coroutines return a job class, i.e. launch() returns job (async returns a deferred), that we can save in a variable.
         * we can wait for a job to be finished by using a suspend function join()
         * https://youtu.be/55W60o9uzVc
         * */
+
+        // NOTE GlobalScope is bad practice, see example with lifecycleScope for details
 
         val job = GlobalScope.launch(Dispatchers.Default) {
             repeat(5) {
@@ -85,27 +87,52 @@ class MainActivity : AppCompatActivity() {
 
         /***************************************************************************************/
 
+        // Using lifecycleScope
+
+        // global scope means that the coroutine will live as long as the application (if it isn't finished)
+        // which is usually not needed, so that would be bad practice
+        // instead lifecycleScope and viewModelScope should be used (require build dependencies)
+        // or CoroutineScope for custom scope
+        // lifecycleScope coroutines, on the other hand will be finished when the activity is destroyed
+        // viewModelScope is the same, only keeps coroutine alive as long as viewModel is alive
+        // this can also be used with fragments
+
         findViewById<Button>(R.id.btnStartActivity).setOnClickListener {
-            lifecycleScope.launch {
+            //when we click button we start a coroutine with an infinite loop
+            lifecycleScope.launch { // if we use GlobalScope here this loop (thread) will continue until whole app is destroyed,
+                // even though our second activity is open and mainActivity is destroyed, which creates memory leak
                 while (true) {
                     delay(1000L)
                     Log.d(TAG, "Still running...")
                 }
             }
-            // global scope means that the coroutine will live as long as the application (if it isn't finished)
-            // launch Dispatcher is not needed here, added to show that launch can have dispatchers
-            GlobalScope.launch(Dispatchers.Default) {
+            // after that coroutine we switch to second activity
+            GlobalScope.launch() {
                 delay(5000L)
                 Intent(this@MainActivity, SecondActivity::class.java).also {
                     startActivity(it)
-                    finish()
+                    finish() // destroy mainActivity
                 }
+            }
+        }
+        /***************************************************************************************/
+        // how to handle exceptions (try catch block is not enough)
+
+        // in this example we use child coroutine to show that exception will be propagated to the
+        // parent coroutine scope and will be caught
+        val handler = CoroutineExceptionHandler { _, throwable ->
+            Log.d(TAG, "Caught exception: $throwable")
+        }
+        lifecycleScope.launch(handler) {
+            launch {
+                throw Exception("MyError1")
             }
         }
 
         /***************************************************************************************/
 
         //how to make 2 network calls in coroutines at the same time (asynchronously)
+        // launch & async
 
         //note that all examples are inside of this GlobalScope.launch{} block
         GlobalScope.launch(Dispatchers.IO) {
@@ -116,7 +143,7 @@ class MainActivity : AppCompatActivity() {
                 val answer2 = networkCall2()
                 Log.d(TAG, "Answer2 is $answer2")
             }
-            Log.d(TAG, "Sync Requests took $time ms.") // in this case time will be ~6000ms
+            Log.d(TAG, "Synchronous Requests took $time ms.") // in this case time will be ~6000ms
 
             /*****************************************/
             // example 2 - asynchronously, but bad practice
